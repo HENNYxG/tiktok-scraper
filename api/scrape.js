@@ -15,12 +15,19 @@ module.exports = async (req, res) => {
     // Path to the Chromium binary bundled by chrome-aws-lambda
     const executablePath = await chromium.executablePath;
 
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath,
-      headless: chromium.headless,
-    });
+browser = await puppeteer.launch({
+  args: [
+    ...chromium.args,
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--single-process",
+  ],
+  defaultViewport: chromium.defaultViewport,
+  executablePath,
+  headless: chromium.headless,
+});
 
     const page = await browser.newPage();
     const cleanUsername = username.replace("@", "");
