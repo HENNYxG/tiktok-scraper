@@ -2,7 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-const { httpGet } = require("tiktok-scraper-without-watermark");
+const cheerio = require("cheerio");
 
 const app = express();
 app.use(cors());
@@ -29,35 +29,20 @@ app.get("/api/scrape", async (req, res) => {
       `Scraping videos for ${cleanUsername} with hashtag #${hashtagToSearch}`
     );
 
-    // Get user videos using the correct method from the library
-    const userVideos = await getUserVideos(cleanUsername);
+    // Use a direct approach with axios
+    const videos = await scrapeUserVideos(cleanUsername);
 
-    if (!userVideos || userVideos.length === 0) {
-      return res.json([]);
-    }
-
-    // Filter by hashtag
-    const filteredVideos = userVideos.filter((video) => {
-      const description = video.description
-        ? video.description.toLowerCase()
-        : "";
-      return description.includes(`#${hashtagToSearch.toLowerCase()}`);
+    // Return all videos for debugging
+    return res.json({
+      username: cleanUsername,
+      hashtag: hashtagToSearch,
+      totalVideos: videos.length,
+      allVideos: videos,
+      filteredVideos: videos.filter((video) => {
+        const description = (video.description || "").toLowerCase();
+        return description.includes(`#${hashtagToSearch.toLowerCase()}`);
+      }),
     });
-
-    // Format the response
-    const formattedVideos = filteredVideos.map((video) => ({
-      id: video.id,
-      datePosted: video.createTime || Math.floor(Date.now() / 1000),
-      url: `https://www.tiktok.com/@${cleanUsername}/video/${video.id}`,
-      description: video.description || "",
-      stats: {
-        views: video.playCount || 0,
-        likes: video.diggCount || 0,
-        comments: video.commentCount || 0,
-      },
-    }));
-
-    res.json(formattedVideos);
   } catch (error) {
     console.error("Scraping error:", error);
     res.status(500).json({
@@ -68,35 +53,101 @@ app.get("/api/scrape", async (req, res) => {
   }
 });
 
-// Function to get user videos
-async function getUserVideos(username) {
+// Function to scrape user videos
+async function scrapeUserVideos(username) {
   try {
-    // Use a different approach - direct HTTP request to TikTok user page
-    const userProfileUrl = `https://www.tiktok.com/@${username}`;
-    const response = await httpGet(userProfileUrl);
+    const userAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36";
 
-    // Extract data from response
-    const videos = [];
-    if (response && response.items) {
-      return response.items;
-    }
-
-    // Alternative approach if direct API fails
-    const apiUrl = `https://www.tiktok.com/node/share/user/@${username}`;
-    const apiResponse = await axios.get(apiUrl, {
+    // First approach: Using TikTok web API
+    const response = await axios.get(`https://www.tiktok.com/@${username}`, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": userAgent,
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        Connection: "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Cache-Control": "max-age=0",
       },
     });
 
-    if (apiResponse.data && apiResponse.data.itemList) {
-      return apiResponse.data.itemList;
+    // Log headers and status for debugging
+    console.log("Response status:", response.status);
+
+    const html = response.data;
+
+    // Look for the JSON data in the HTML
+    const dataMatch = html.match(
+      /<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>/
+    );
+
+    if (dataMatch && dataMatch[1]) {
+      try {
+        const jsonData = JSON.parse(dataMatch[1]);
+
+        // Debug: Log the structure of the data
+        console.log("Keys in JSON data:", Object.keys(jsonData));
+
+        // Look for user's videos in different possible locations
+        let userVideos = [];
+
+        if (jsonData.ItemModule) {
+          userVideos = Object.values(jsonData.ItemModule);
+        } else if (
+          jsonData.ItemList &&
+          jsonData.ItemList.video &&
+          jsonData.ItemList.video.list
+        ) {
+          userVideos = jsonData.ItemList.video.list;
+        } else if (jsonData.userModule && jsonData.userModule.videos) {
+          userVideos = jsonData.userModule.videos;
+        }
+
+        // Transform videos to a standard format
+        return userVideos.map((video) => ({
+          id: video.id || "",
+          description: video.desc || "",
+          createTime: video.createTime || Math.floor(Date.now() / 1000),
+          playCount: parseInt(video.stats?.playCount || 0),
+          diggCount: parseInt(video.stats?.diggCount || 0),
+          commentCount: parseInt(video.stats?.commentCount || 0),
+          shareCount: parseInt(video.stats?.shareCount || 0),
+        }));
+      } catch (parseError) {
+        console.error("Error parsing JSON data:", parseError);
+      }
     }
+
+    // If we reach here, we couldn't extract videos using the first method
+    console.log(
+      "Could not extract videos using primary method, trying fallback..."
+    );
+
+    // Fallback approach: Parse HTML directly
+    const $ = cheerio.load(html);
+    const videos = [];
+
+    // Look for video elements
+    $('div[data-e2e="user-post-item"]').each((index, element) => {
+      const videoLink = $(element).find("a").attr("href");
+      const videoId = videoLink ? videoLink.split("/video/")[1] : null;
+
+      if (videoId) {
+        videos.push({
+          id: videoId,
+          description: $(element).find("div.tt-feed-desc-text").text() || "",
+          createTime: Math.floor(Date.now() / 1000),
+          playCount: 0,
+          diggCount: 0,
+          commentCount: 0,
+        });
+      }
+    });
 
     return videos;
   } catch (error) {
-    console.error("Error fetching user videos:", error);
+    console.error("Error in scrapeUserVideos:", error);
     return [];
   }
 }
