@@ -5,44 +5,42 @@ module.exports = async (req, res) => {
   const { username, hashtag } = req.query;
 
   if (!username || !hashtag) {
-    return res.status(400).json({
-      error: "username and hashtag query parameters are required",
-    });
+    return res
+      .status(400)
+      .json({ error: "username and hashtag query parameters are required" });
   }
 
   let browser = null;
   try {
-    // Path to the Chromium binary bundled by chrome-aws-lambda
+    // Get the path to the Chromium binary
     const executablePath = await chromium.executablePath;
 
-browser = await puppeteer.launch({
-  args: [
-    ...chromium.args,
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--single-process",
-  ],
-  defaultViewport: chromium.defaultViewport,
-  executablePath,
-  headless: chromium.headless,
-});
+    browser = await puppeteer.launch({
+      args: [
+        ...chromium.args,
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+      ],
+      defaultViewport: chromium.defaultViewport,
+      executablePath,
+      headless: chromium.headless,
+    });
 
     const page = await browser.newPage();
     const cleanUsername = username.replace("@", "");
-
     await page.goto(`https://www.tiktok.com/@${cleanUsername}`, {
       waitUntil: "networkidle2",
       timeout: 30000,
     });
 
-    // Wait for container (update selector as needed)
+    // Wait for the container that holds video items (update the selector if needed)
     await page.waitForSelector("div.tiktok-yz6ijl-DivItemContainer", {
       timeout: 10000,
     });
 
-    // Evaluate the page to extract video data
     const videos = await page.evaluate((hashtag) => {
       const videoElements = document.querySelectorAll(
         "div.tiktok-yz6ijl-DivItemContainer"
@@ -55,8 +53,8 @@ browser = await puppeteer.launch({
         const description = descEl ? descEl.innerText : "";
         if (description.toLowerCase().includes("#" + hashtag.toLowerCase())) {
           results.push({
-            id: url.split("/").pop(),
-            datePosted: new Date().toISOString(),
+            id: url.split("/").pop(), // simple ID extraction from URL
+            datePosted: new Date().toISOString(), // Placeholder date
             url,
             description,
             stats: {

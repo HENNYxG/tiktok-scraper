@@ -2,10 +2,10 @@
   "name": "tiktok-scraper",
   "version": "1.0.0",
   "scripts": {
-    "start": "vercel dev"
+    "start": "netlify dev"
   },
   "dependencies": {
-    "puppeteer-core": "^10.1.0",
+    "puppeteer-core": "^22.8.2",
     "chrome-aws-lambda": "^10.1.0"
   }
 }
