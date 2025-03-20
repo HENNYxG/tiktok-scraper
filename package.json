@@ -1,12 +1,11 @@
 {
   "name": "tiktok-scraper",
   "version": "1.0.0",
-  "description": "Scrapes TikTok videos for a specific hashtag",
-  "main": "api/scrape.js",
   "scripts": {
     "start": "vercel dev"
   },
   "dependencies": {
-    "puppeteer": "^22.8.2"
+    "puppeteer-core": "^10.1.0",
+    "chrome-aws-lambda": "^10.1.0"
   }
 }
